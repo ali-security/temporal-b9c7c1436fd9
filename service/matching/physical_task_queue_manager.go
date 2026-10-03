@@ -953,10 +953,10 @@ func (c *physicalTaskQueueManagerImpl) makePollerScalingDecisionImpl(
 	if c.delaySignalFiring(stats, task) {
 		delta = 1
 		reason = metrics.PollerScaleReasonDelay
-	} else if c.queue.Partition().Kind() != enumspb.TASK_QUEUE_KIND_STICKY && !c.queue.Partition().IsRoot() {
+	} else if !c.queue.Partition().IsRoot() && c.queue.Partition().SupportsPartitions() {
 		// Non-root partitions don't have an appropriate view of the data to make decisions beyond backlog.
-		// Sticky queues are exempt: they aren't considered root but do have a complete view of their data,
-		// as they have only 1 partition.
+		// Single-partition queues (sticky, worker commands) are exempt: they aren't root but do have a
+		// complete view of their data.
 		return nil
 	} else if c.ratioSignalFiring(stats) {
 		delta = 1
