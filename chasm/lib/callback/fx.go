@@ -8,6 +8,7 @@ import (
 	"go.temporal.io/server/common"
 	"go.temporal.io/server/common/cluster"
 	"go.temporal.io/server/common/collection"
+	"go.temporal.io/server/common/dynamicconfig"
 	"go.temporal.io/server/common/log"
 	"go.temporal.io/server/common/namespace"
 	commonnexus "go.temporal.io/server/common/nexus"
@@ -29,6 +30,7 @@ func httpCallerProviderProvider(
 	rpcFactory common.RPCFactory,
 	httpClientCache *cluster.FrontendHTTPClientCache,
 	logger log.Logger,
+	config *Config,
 ) (HTTPCallerProvider, error) {
 	localClient, err := rpcFactory.CreateLocalFrontendHTTPClient()
 	if err != nil {
@@ -36,6 +38,10 @@ func httpCallerProviderProvider(
 	}
 	defaultClient := &http.Client{}
 	callbackTokenGenerator := commonnexus.NewCallbackTokenGenerator()
+	inspectSourceHeader := config.InspectSourceHeader
+	if inspectSourceHeader == nil {
+		inspectSourceHeader = InspectSourceHeader.Get(dynamicconfig.NewNoopCollection())
+	}
 
 	m := collection.NewOnceMap(func(queuescommon.NamespaceIDAndDestination) HTTPCaller {
 		return func(r *http.Request) (*http.Response, error) {
@@ -47,6 +53,7 @@ func httpCallerProviderProvider(
 				defaultClient,
 				localClient,
 				logger,
+				inspectSourceHeader(),
 			)
 		}
 	})

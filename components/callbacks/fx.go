@@ -7,6 +7,7 @@ import (
 	"go.temporal.io/server/common"
 	"go.temporal.io/server/common/cluster"
 	"go.temporal.io/server/common/collection"
+	"go.temporal.io/server/common/dynamicconfig"
 	"go.temporal.io/server/common/log"
 	"go.temporal.io/server/common/namespace"
 	commonnexus "go.temporal.io/server/common/nexus"
@@ -17,12 +18,15 @@ import (
 var Module = fx.Module(
 	"component.callbacks",
 	fx.Provide(ConfigProvider),
-	fx.Provide(HTTPCallerProviderProvider),
+	fx.Provide(HTTPCallerProviderProviderWithConfig),
 	fx.Invoke(RegisterTaskSerializers),
 	fx.Invoke(RegisterStateMachine),
 	fx.Invoke(RegisterExecutor),
 )
 
+// HTTPCallerProviderProvider provides an HTTPCallerProvider that inspects the legacy "source"
+// header according to the default value of the callback.inspectSourceHeader setting.
+// Prefer HTTPCallerProviderProviderWithConfig, which honors the dynamically configured value.
 func HTTPCallerProviderProvider(
 	clusterMetadata cluster.Metadata,
 	namespaceRegistry namespace.Registry,
@@ -30,6 +34,47 @@ func HTTPCallerProviderProvider(
 	httpClientCache *cluster.FrontendHTTPClientCache,
 	logger log.Logger,
 ) (HTTPCallerProvider, error) {
+	return newHTTPCallerProvider(
+		clusterMetadata,
+		namespaceRegistry,
+		rpcFactory,
+		httpClientCache,
+		logger,
+		nil,
+	)
+}
+
+// HTTPCallerProviderProviderWithConfig provides an HTTPCallerProvider that honors the
+// callback.inspectSourceHeader dynamic config setting.
+func HTTPCallerProviderProviderWithConfig(
+	clusterMetadata cluster.Metadata,
+	namespaceRegistry namespace.Registry,
+	rpcFactory common.RPCFactory,
+	httpClientCache *cluster.FrontendHTTPClientCache,
+	logger log.Logger,
+	config *Config,
+) (HTTPCallerProvider, error) {
+	return newHTTPCallerProvider(
+		clusterMetadata,
+		namespaceRegistry,
+		rpcFactory,
+		httpClientCache,
+		logger,
+		config.InspectSourceHeader,
+	)
+}
+
+func newHTTPCallerProvider(
+	clusterMetadata cluster.Metadata,
+	namespaceRegistry namespace.Registry,
+	rpcFactory common.RPCFactory,
+	httpClientCache *cluster.FrontendHTTPClientCache,
+	logger log.Logger,
+	inspectSourceHeader func() bool,
+) (HTTPCallerProvider, error) {
+	if inspectSourceHeader == nil {
+		inspectSourceHeader = dynamicconfig.GetBoolPropertyFn(defaultInspectSourceHeader())
+	}
 	localClient, err := rpcFactory.CreateLocalFrontendHTTPClient()
 	if err != nil {
 		return nil, fmt.Errorf("cannot create local frontend HTTP client: %w", err)
@@ -47,6 +92,7 @@ func HTTPCallerProviderProvider(
 				defaultClient,
 				localClient,
 				logger,
+				inspectSourceHeader(),
 			)
 		}
 	})
